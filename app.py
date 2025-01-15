@@ -158,9 +158,9 @@ if submit:
             (
                 "system",
                 """You are a expert interviewer taking an online interview of a candidate.
-                Based on the tech-stack provided generate 3-5 questions, which are generally asked in every interviewer to assess the candidate’s proficiency.
-                Do not write anything else than the questions."""
+                Generate 3-5 questions that are typically asked by interviewers to assess a candidate's proficiency for a specific position. Base the questions on the provided job description, position, and tech stack. Ensure the questions are tailored to evaluate both technical skills and relevant experience. Do not include anything other than the questions."""
             ),
+            ("placeholder", "{chat_history}"),
             ("human", "{input}"),
             ("placeholder", "{agent_scratchpad}"),
         ]
@@ -169,49 +169,59 @@ if submit:
     agent = create_tool_calling_agent(llm, tools, prompt)
     agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=False)
 
-    response = agent_executor.invoke({"input": tech_stack})["output"]
+    response = agent_executor.invoke({
+            "input": tech_stack,
+            "chat_history": st.session_state["memory"].chat_memory.messages,
+        })["output"]
     st.session_state["questions"] = response.strip().split("\n")
     st.session_state["current_question_index"] = 0
     st.session_state["answers"] = []
 
 if st.session_state["questions"]:
-    current_index = st.session_state["current_question_index"]
-    if current_index < len(st.session_state["questions"]):
-        st.subheader(f"Question {current_index + 1}")
-        question = st.session_state["questions"][current_index]
+    st.header("Answer the following questions:")
+    for index, question in enumerate(st.session_state["questions"]):
+        st.subheader(f"Question {index + 1}:")
         st.write(question)
-        answer = st.text_area("Your Answer", key=f"answer_{current_index}")
 
-        if st.button("Submit Answer"):
-            st.session_state["answers"].append(answer)
-            st.session_state["memory"].save_context({"input": question}, {"output": answer})
-            st.session_state["current_question_index"] += 1
-    else:
+        if index < len(st.session_state["answers"]):
+            st.text_area(
+                "Your Answer",
+                value=st.session_state["answers"][index],
+                key=f"answer_{index}_display",
+                disabled=True,
+            )
+        else:
+            answer = st.text_area("Your Answer", key=f"answer_{index}_editable")
+            if st.button("Submit Answer", key=f"submit_{index}"):
+                st.session_state["answers"].append(answer)
+                st.session_state["memory"].save_context({"input": question}, {"output": answer})
+
+    if len(st.session_state["answers"]) == len(st.session_state["questions"]):
         st.success("You have completed all questions!")
 
-        st.subheader("Do you wanna ask something else?")
-        user_input = st.text_input("Your Message", key="user_input")
-        if st.button("Send"):
-            st.session_state["memory"].save_context({"input": user_input}, {"output": "Processing your message..."})
-            response = st.session_state["agent_executor3"].invoke({
-                "input": user_input,
-                "chat_history": st.session_state["memory"].chat_memory.messages,
-            })["output"]
-            st.write(response)
-            st.session_state["memory"].save_context({"input": user_input}, {"output": response})
+    st.subheader("Do you wanna ask something else?")
+    user_input = st.text_input("Your Message", key="user_input")
+    if st.button("Send"):
+        st.session_state["memory"].save_context({"input": user_input}, {"output": "Processing your message..."})
+        response = st.session_state["agent_executor3"].invoke({
+            "input": user_input,
+            "chat_history": st.session_state["memory"].chat_memory.messages,
+        })["output"]
+        st.write(response)
+        st.session_state["memory"].save_context({"input": user_input}, {"output": response})
 
-        if st.button("End Conversation"):
-            # Analyze and display candidate emotion before ending the chat
-            candidate_emotion = analyze_emotion(st.session_state["answers"])
-            farewell_message = (
+
+    if st.button("End Conversation"):
+        candidate_emotion = analyze_emotion(st.session_state["answers"])
+        farewell_message = (
                 "Thank you for your time! It was great speaking with you. "
                 "We'll review your responses and get back to you soon.\n\n"
                 f"Analysis of your responses suggests you seem: {candidate_emotion}\n\n"
                 "Have a wonderful day!"
             )
-            st.session_state["memory"].save_context({"input": "End Conversation"}, {"output": farewell_message})
-            st.session_state["conversation_ended"] = True
-            st.write(farewell_message)
+        st.session_state["memory"].save_context({"input": "End Conversation"}, {"output": farewell_message})
+        st.session_state["conversation_ended"] = True
+        st.write(farewell_message)
 
 if st.session_state["conversation_ended"]:
     st.subheader("Chat Ended")
