@@ -4,7 +4,10 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_groq import ChatGroq
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_community.tools.tavily_search import TavilySearchResults
-from langchain.agents import AgentExecutor, create_tool_calling_agent, create_react_agent
+from langchain_community.retrievers import TavilySearchAPIRetriever
+from langchain.agents import AgentExecutor, create_react_agent
+from langchain import PromptTemplate
+from langchain.chains import ConversationalRetrievalChain
 from langchain import hub
 import os
 from textblob import TextBlob
@@ -19,6 +22,20 @@ api_key_tavily = os.getenv("TAVILY_API_KEY")
 os.environ['GROQ_API_KEY'] = api_key_groq
 os.environ['TAVILY_API_KEY'] = api_key_tavily
 os.environ["GOOGLE_API_KEY"] = api_key_google
+
+prompt_template = """You are an Interviewer and just took an interview of an candidate.
+Now its his time to ask some followup questions based on his interview and about your company which you have to answer carefully.
+
+history: {chat_history}
+Context: {context}
+Question: {question}
+
+Only return the helpful answer below and nothing else.
+Helpful answer:
+"""
+prompt = PromptTemplate(template=prompt_template, input_variables=['chat_history', 'context', 'question'])
+
+retriever = TavilySearchAPIRetriever(k=3)
 
 
 def analyze_emotion(responses):
@@ -115,10 +132,16 @@ for context_item in initial_context:
         {"output": context_item["output"]}
     )
 
-if "agent_executor3" not in st.session_state:
-    react_prompt = hub.pull("hwchase17/react-chat")
-    agent3 = create_react_agent(llm, tools, react_prompt)
-    st.session_state["agent_executor3"] = AgentExecutor(agent=agent3, tools=tools)
+qa = ConversationalRetrievalChain.from_llm(
+        llm=llm,
+        retriever=retriever,
+        memory=st.session_state["memory"],
+        combine_docs_chain_kwargs={"prompt": prompt}
+    )
+
+react_prompt = hub.pull("hwchase17/react-chat")
+agent3 = create_react_agent(llm, tools, react_prompt)
+agent_executor = AgentExecutor(agent=agent3, tools=tools,handle_parsing_errors=True)
 
 st.title("Hiring Assistant Chatbot")
 st.markdown("Hello! Welcome to the Hiring Assistant Chatbot.")
@@ -166,13 +189,14 @@ if submit:
         ]
     )
 
-    agent = create_tool_calling_agent(llm, tools, prompt)
-    agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=False)
-
     response = agent_executor.invoke({
-            "input": tech_stack,
+            "input": f"""Generate 3-5 questions that are typically asked by interviewers to assess a 
+            candidate's proficiency for a specific position. Base the questions on the provided job description, 
+            position, and {tech_stack}. Ensure the questions are tailored to evaluate both technical skills and 
+            relevant experience. Do not include anything other than the questions.""",
             "chat_history": st.session_state["memory"].chat_memory.messages,
         })["output"]
+
     st.session_state["questions"] = response.strip().split("\n")
     st.session_state["current_question_index"] = 0
     st.session_state["answers"] = []
@@ -203,10 +227,7 @@ if st.session_state["questions"]:
     user_input = st.text_input("Your Message", key="user_input")
     if st.button("Send"):
         st.session_state["memory"].save_context({"input": user_input}, {"output": "Processing your message..."})
-        response = st.session_state["agent_executor3"].invoke({
-            "input": user_input,
-            "chat_history": st.session_state["memory"].chat_memory.messages,
-        })["output"]
+        response = qa.invoke(user_input)['answer']
         st.write(response)
         st.session_state["memory"].save_context({"input": user_input}, {"output": response})
 
