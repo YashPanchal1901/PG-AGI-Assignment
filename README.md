@@ -3,6 +3,8 @@
 ## Project Overview
 The Hiring Assistant Chatbot is designed to streamline the interview process by collecting candidate details, generating technical questions based on the job description, position, and tech stack, and interacting with candidates to assess their proficiency. The chatbot leverages advanced natural language processing (NLP) models and integrates various tools for a seamless experience.
 
+Live Link : https://huggingface.co/spaces/YashPanchal1901/PG_AGI?logs=container
+
 ## Installation Instructions
 To set up and run the application locally, follow these steps:
 
